@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mileage Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0f0f0e;
+    --surface: #1a1a18;
+    --surface2: #242422;
+    --border: #2e2e2b;
+    --accent: #c8f06e;
+    --accent2: #f0c86e;
+    --text: #e8e8e2;
+    --muted: #7a7a72;
+    --danger: #f06e6e;
+    --radius: 8px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    min-height: 100vh;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .logo {
+    font-family: 'Fraunces', serif;
+    font-size: 22px;
+    font-weight: 300;
+    letter-spacing: -0.5px;
+    color: var(--accent);
+  }
+
+  .logo span { color: var(--text); font-style: italic; }
+
+  .header-right { display: flex; gap: 12px; align-items: center; }
+
+  #authBtn {
+    background: var(--accent);
+    color: #0f0f0e;
+    border: none;
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s;
+  }
+  #authBtn:hover { opacity: 0.85; }
+  #authBtn.signed-in { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    display: inline-block;
+    margin-right: 6px;
+  }
+  .status-dot.connected { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+
+  main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px;
+  }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+
+  .stat-label {
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-family: 'Fraunces', serif;
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .stat-value.money { color: var(--accent2); }
+  .stat-sub { color: var(--muted); font-size: 11px; margin-top: 4px; }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 24px;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+  }
+
+  .btn {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 7px 14px;
+    border-radius: var(--radius);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); color: #0f0f0e; border-color: var(--accent); }
+  .btn.primary:hover { opacity: 0.85; color: #0f0f0e; }
+  .btn.danger { border-color: var(--danger); color: var(--danger); }
+  .btn.small { padding: 4px 10px; font-size: 11px; }
+
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Trip Table */
+  .trips-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .trips-table th {
+    text-align: left;
+    padding: 10px 16px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+  }
+
+  .trips-table td {
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+
+  .trips-table tr:last-child td { border-bottom: none; }
+  .trips-table tr:hover td { background: var(--surface2); }
+
+  .trip-source {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 500;
+  }
+  .trip-source.calendar { background: rgba(200,240,110,0.15); color: var(--accent); }
+  .trip-source.manual { background: rgba(240,200,110,0.15); color: var(--accent2); }
+  .trip-source.pending { background: rgba(240,110,110,0.15); color: var(--danger); }
+
+  .miles-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    width: 70px;
+    text-align: right;
+  }
+  .miles-input:focus { outline: none; border-color: var(--accent); }
+
+  .amount { color: var(--accent2); font-weight: 500; }
+
+  /* Add Trip Form */
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    padding: 20px;
+  }
+
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group.full { grid-column: 1 / -1; }
+
+  label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; }
+
+  input, select, textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 12px;
+    border-radius: var(--radius);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  select option { background: var(--surface); }
+
+  .form-actions {
+    padding: 0 20px 20px;
+    display: flex;
+    gap: 10px;
+  }
+
+  /* Calendar sync panel */
+  .calendar-events {
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  .event-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+  .event-row:last-child { border-bottom: none; }
+  .event-row:hover { background: var(--surface2); }
+
+  .event-check {
+    width: 16px; height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  .event-info { flex: 1; }
+  .event-title { font-size: 13px; margin-bottom: 2px; }
+  .event-meta { color: var(--muted); font-size: 11px; }
+  .event-location { color: var(--accent); font-size: 11px; }
+
+  .no-location { color: var(--danger); font-size: 11px; }
+
+  /* Saved Locations */
+  .locations-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+    padding: 20px;
+  }
+
+  .location-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    position: relative;
+  }
+
+  .location-name { font-weight: 500; margin-bottom: 4px; }
+  .location-address { color: var(--muted); font-size: 11px; line-height: 1.5; }
+  .location-delete {
+    position: absolute;
+    top: 10px; right: 10px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+  }
+  .location-delete:hover { color: var(--danger); }
+
+  /* Month filter */
+  .filter-row {
+    display: flex;
+    gap: 8px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .filter-label { color: var(--muted); font-size: 11px; margin-right: 4px; }
+
+  .month-btn {
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: none;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.1s;
+  }
+  .month-btn.active { background: var(--accent); color: #0f0f0e; border-color: var(--accent); }
+  .month-btn:hover:not(.active) { border-color: var(--text); color: var(--text); }
+
+  /* Tabs */
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+  }
+
+  .tab {
+    padding: 12px 16px;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all 0.15s;
+  }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Setup notice */
+  .setup-notice {
+    background: rgba(200,240,110,0.07);
+    border: 1px solid rgba(200,240,110,0.2);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin: 20px;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--accent);
+  }
+  .setup-notice strong { display: block; margin-bottom: 6px; font-size: 13px; }
+  .setup-notice code {
+    background: rgba(200,240,110,0.1);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* Toast */
+  #toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 18px;
+    font-size: 12px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s;
+    pointer-events: none;
+    z-index: 100;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.success { border-color: var(--accent); color: var(--accent); }
+  #toast.error { border-color: var(--danger); color: var(--danger); }
+
+  .empty-state {
+    text-align: center;
+    padding: 48px;
+    color: var(--muted);
+  }
+  .empty-state .icon { font-size: 32px; margin-bottom: 12px; }
+
+  /* Loading */
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Print */
+  @media print {
+    body { background: white; color: black; font-size: 11px; }
+    header, .tabs, .btn, #toast, .panel-header button, .filter-row, .miles-input { display: none !important; }
+    .stat-card, .panel { border: 1px solid #ccc; }
+    .stat-value { color: #000; }
+    .amount { color: #000; font-weight: bold; }
+    .trip-source { border: 1px solid #ccc; }
+    .logo { color: #000; }
+  }
+
+  @media (max-width: 768px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    main { padding: 16px; }
+    header { padding: 14px 16px; }
+    .form-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     SETUP INSTRUCTIONS FOR USER
+     ============================================================
+     Before using this app, replace these 3 placeholder values:
+     
+     1. Find: 3f0b9204-cde9-46ff-b35d-6c2f46eb8391
+        Replace with your Azure Directory (Tenant) ID
+     
+     2. Find: 9d98e61d-f3ba-41ea-9950-09a777269474
+        Replace with your Azure Application (Client) ID
+     
+     3. Find: AIzaSyDej64dHA97DHA2GtvrllxQfY6yP42MaHo
+        Replace with your Google Maps API key
+     
+     Also update HOME_POSTCODE below to your postcode.
+     ============================================================ -->
+
+<header>
+  <div class="logo">mile<span>wise</span></div>
+  <div class="header-right">
+    <span id="authStatus"><span class="status-dot" id="statusDot"></span><span id="statusText">Not connected</span></span>
+    <button id="authBtn" onclick="toggleAuth()">Connect to Office 365</button>
+  </div>
+</header>
+
+<main>
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Total Trips</div>
+      <div class="stat-value" id="statTrips">0</div>
+      <div class="stat-sub" id="statPeriod">Last 12 months</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Miles</div>
+      <div class="stat-value" id="statMiles">0</div>
+      <div class="stat-sub">Business miles</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Claimable Amount</div>
+      <div class="stat-value money" id="statAmount">£0.00</div>
+      <div class="stat-sub">@ £0.49/mile</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Pending Miles</div>
+      <div class="stat-value" id="statPending" style="color:var(--danger)">0</div>
+      <div class="stat-sub">Need mileage entry</div>
+    </div>
+  </div>
+
+  <!-- Main Panel with Tabs -->
+  <div class="panel">
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('trips')">Trip Log</div>
+      <div class="tab" onclick="switchTab('calendar')">Calendar Sync</div>
+      <div class="tab" onclick="switchTab('add')">Add Trip</div>
+      <div class="tab" onclick="switchTab('locations')">Saved Locations</div>
+    </div>
+
+    <!-- TRIPS TAB -->
+    <div class="tab-content active" id="tab-trips">
+      <div class="filter-row">
+        <span class="filter-label">Filter:</span>
+        <button class="month-btn active" onclick="filterMonth('all', this)">All</button>
+        <button class="month-btn" onclick="filterMonth('tax-year', this)">Tax Year</button>
+        <div id="monthButtons"></div>
+      </div>
+      <div class="panel-header" style="border-top: 1px solid var(--border);">
+        <span class="panel-title" id="tripsCount">0 trips</span>
+        <div class="btn-row">
+          <button class="btn small" onclick="exportCSV()">Export CSV</button>
+          <button class="btn small" onclick="exportExcel()">Export Excel</button>
+          <button class="btn small" onclick="window.print()">Print Report</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table class="trips-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Meeting</th>
+              <th>Destination</th>
+              <th>Return</th>
+              <th>Miles</th>
+              <th>Amount</th>
+              <th>Source</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tripsBody"></tbody>
+        </table>
+      </div>
+      <div class="empty-state" id="emptyTrips">
+        <div class="icon">🚗</div>
+        <div>No trips logged yet.</div>
+        <div style="margin-top:8px;">Sync your calendar or add a trip manually.</div>
+      </div>
+    </div>
+
+    <!-- CALENDAR TAB -->
+    <div class="tab-content" id="tab-calendar">
+      <div class="setup-notice" id="calendarSetupNotice">
+        <strong>⚙️ Setup Required</strong>
+        Open this file in a text editor and replace <code>3f0b9204-cde9-46ff-b35d-6c2f46eb8391</code> and <code>9d98e61d-f3ba-41ea-9950-09a777269474</code> with your Azure credentials, then click "Connect to Office 365" in the top right.
+      </div>
+      <div class="panel-header">
+        <span class="panel-title">Calendar Events (Last 12 months)</span>
+        <div class="btn-row">
+          <button class="btn" id="syncBtn" onclick="syncCalendar()">Sync Calendar</button>
+          <button class="btn primary" id="importSelectedBtn" onclick="importSelected()" style="display:none">Import Selected</button>
+        </div>
+      </div>
+      <div class="calendar-events" id="calendarEvents">
+        <div class="empty-state">
+          <div class="icon">📅</div>
+          <div>Connect to Office 365 to sync calendar events.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADD TRIP TAB -->
+    <div class="tab-content" id="tab-add">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="addDate">
+        </div>
+        <div class="form-group">
+          <label>Meeting / Purpose</label>
+          <input type="text" id="addTitle" placeholder="e.g. Client meeting - Acme Ltd">
+        </div>
+        <div class="form-group">
+          <label>Destination</label>
+          <input type="text" id="addDest" placeholder="Address or postcode" oninput="onDestInput(this.value)">
+          <div id="destSuggestions" style="display:none; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); margin-top:2px;"></div>
+        </div>
+        <div class="form-group">
+          <label>Return Journey?</label>
+          <select id="addReturn">
+            <option value="yes">Yes (same day return)</option>
+            <option value="no">No (one way)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Miles (one way)</label>
+          <input type="number" id="addMiles" placeholder="e.g. 12.5" step="0.1" min="0">
+        </div>
+        <div class="form-group">
+          <label>Auto-calculate distance</label>
+          <button class="btn" onclick="calcDistance()" id="calcBtn">Calculate from address</button>
+        </div>
+        <div class="form-group full">
+          <label>Notes (optional)</label>
+          <input type="text" id="addNotes" placeholder="Any additional notes">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" onclick="addTripManual()">Add Trip</button>
+        <button class="btn" onclick="clearForm()">Clear</button>
+      </div>
+    </div>
+
+    <!-- LOCATIONS TAB -->
+    <div class="tab-content" id="tab-locations">
+      <div class="panel-header">
+        <span class="panel-title">Saved Locations</span>
+        <button class="btn" onclick="showAddLocation()">+ Add Location</button>
+      </div>
+      <div id="addLocationForm" style="display:none; padding:20px; border-bottom:1px solid var(--border);">
+        <div class="form-grid" style="padding:0; margin-bottom:12px;">
+          <div class="form-group">
+            <label>Name / Label</label>
+            <input type="text" id="locName" placeholder="e.g. Acme Ltd Office">
+          </div>
+          <div class="form-group">
+            <label>Full Address or Postcode</label>
+            <input type="text" id="locAddress" placeholder="e.g. 123 High Street, London, EC1A 1BB">
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn primary small" onclick="saveLocation()">Save Location</button>
+          <button class="btn small" onclick="hideAddLocation()">Cancel</button>
+        </div>
+      </div>
+      <div class="locations-grid" id="locationsGrid"></div>
+      <div class="empty-state" id="emptyLocations" style="display:none;">
+        <div class="icon">📍</div>
+        <div>No saved locations yet.</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+// ============================================================
+// CONFIGURATION — REPLACE THESE VALUES
+// ============================================================
+const CONFIG = {
+  tenantId: '3f0b9204-cde9-46ff-b35d-6c2f46eb8391',       // ← Replace with your Azure Tenant ID
+  clientId: '9d98e61d-f3ba-41ea-9950-09a777269474',       // ← Replace with your Azure Client ID
+  googleMapsKey: 'AIzaSyDej64dHA97DHA2GtvrllxQfY6yP42MaHo', // ← Replace with your Google Maps API Key
+  homePostcode: 'SE27 0NA',         // ← Your home postcode (already set)
+  ratePerMile: 0.49,
+  redirectUri: window.location.href.split('?')[0].split('#')[0]
+};
+// ============================================================
+
+// State
+let trips = JSON.parse(localStorage.getItem('mileage_trips') || '[]');
+let locations = JSON.parse(localStorage.getItem('mileage_locations') || '[]');
+let accessToken = null;
+let calendarFetched = [];
+let currentFilter = 'all';
+
+// ============================================================
+// AUTH — Microsoft MSAL-lite (implicit flow)
+// ============================================================
+function toggleAuth() {
+  if (accessToken) {
+    accessToken = null;
+    updateAuthUI(false);
+    toast('Signed out', 'success');
+  } else {
+    startAuth();
+  }
+}
+
+function startAuth() {
+  if (CONFIG.clientId === '9d98e61d-f3ba-41ea-9950-09a777269474') {
+    toast('Please set your CLIENT_ID in the config first', 'error');
+    return;
+  }
+  const params = new URLSearchParams({
+    client_id: CONFIG.clientId,
+    response_type: 'token',
+    redirect_uri: CONFIG.redirectUri,
+    scope: 'https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/User.Read',
+    response_mode: 'fragment',
+    nonce: Math.random().toString(36)
+  });
+  window.location.href = `https://login.microsoftonline.com/${CONFIG.tenantId}/oauth2/v2.0/authorize?${params}`;
+}
+
+function checkAuthCallback() {
+  const hash = window.location.hash;
+  if (hash.includes('access_token')) {
+    const params = new URLSearchParams(hash.substring(1));
+    accessToken = params.get('access_token');
+    history.replaceState(null, '', window.location.pathname);
+    updateAuthUI(true);
+    toast('Connected to Office 365', 'success');
+    document.getElementById('calendarSetupNotice').style.display = 'none';
+  }
+}
+
+function updateAuthUI(connected) {
+  const btn = document.getElementById('authBtn');
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  if (connected) {
+    btn.textContent = 'Sign Out';
+    btn.classList.add('signed-in');
+    dot.classList.add('connected');
+    txt.textContent = 'Connected';
+  } else {
+    btn.textContent = 'Connect to Office 365';
+    btn.classList.remove('signed-in');
+    dot.classList.remove('connected');
+    txt.textContent = 'Not connected';
+  }
+}
+
+// ============================================================
+// CALENDAR SYNC
+// ============================================================
+async function syncCalendar() {
+  if (!accessToken) {
+    toast('Please connect to Office 365 first', 'error');
+    return;
+  }
+  const btn = document.getElementById('syncBtn');
+  btn.innerHTML = '<span class="spinner"></span>Syncing...';
+  btn.disabled = true;
+
+  try {
+    const since = new Date();
+    since.setFullYear(since.getFullYear() - 1);
+    const url = `https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=${since.toISOString()}&endDateTime=${new Date().toISOString()}&$select=subject,start,end,location,isOnlineMeeting&$top=200&$orderby=start/dateTime desc`;
+
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!res.ok) throw new Error('Graph API error');
+    const data = await res.json();
+
+    calendarFetched = (data.value || []).filter(e => {
+      const loc = e.location?.displayName || '';
+      return loc && !e.isOnlineMeeting && loc.toLowerCase() !== 'microsoft teams meeting';
+    });
+
+    renderCalendarEvents(calendarFetched);
+    document.getElementById('importSelectedBtn').style.display = 'flex';
+    toast(`Found ${calendarFetched.length} face-to-face events`, 'success');
+  } catch (err) {
+    toast('Failed to sync calendar: ' + err.message, 'error');
+  } finally {
+    btn.innerHTML = 'Sync Calendar';
+    btn.disabled = false;
+  }
+}
+
+function renderCalendarEvents(events) {
+  const container = document.getElementById('calendarEvents');
+  if (!events.length) {
+    container.innerHTML = '<div class="empty-state"><div class="icon">📅</div><div>No face-to-face events found in the last 12 months.</div></div>';
+    return;
+  }
+
+  container.innerHTML = events.map((e, i) => {
+    const date = new Date(e.start.dateTime || e.start.date).toLocaleDateString('en-GB');
+    const loc = e.location?.displayName || '';
+    const alreadyImported = trips.some(t => t.calendarId === e.id);
+    return `
+      <div class="event-row ${alreadyImported ? 'opacity-50' : ''}">
+        <input type="checkbox" class="event-check" id="evt${i}" ${alreadyImported ? 'disabled checked' : ''} data-idx="${i}">
+        <div class="event-info">
+          <div class="event-title">${e.subject || 'Untitled'}</div>
+          <div class="event-meta">${date}</div>
+          ${loc ? `<div class="event-location">📍 ${loc}</div>` : `<div class="no-location">⚠ No location — set miles manually after import</div>`}
+        </div>
+        ${alreadyImported ? '<span style="color:var(--muted);font-size:11px;">Already imported</span>' : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+async function importSelected() {
+  const checkboxes = document.querySelectorAll('.event-check:not(:disabled):checked');
+  if (!checkboxes.length) { toast('Select at least one event', 'error'); return; }
+
+  let imported = 0;
+  for (const cb of checkboxes) {
+    const evt = calendarFetched[parseInt(cb.dataset.idx)];
+    const loc = evt.location?.displayName || '';
+    const dateStr = (evt.start.dateTime || evt.start.date).split('T')[0];
+
+    let miles = 0;
+    if (loc && CONFIG.googleMapsKey !== 'AIzaSyDej64dHA97DHA2GtvrllxQfY6yP42MaHo') {
+      miles = await getMiles(CONFIG.homePostcode, loc);
+    }
+
+    trips.push({
+      id: Date.now() + imported,
+      calendarId: evt.id,
+      date: dateStr,
+      title: evt.subject || 'Meeting',
+      destination: loc,
+      returnJourney: true,
+      miles: miles,
+      notes: '',
+      source: miles ? 'calendar' : 'pending'
+    });
+    imported++;
+  }
+
+  saveTrips();
+  renderTrips();
+  updateStats();
+  toast(`Imported ${imported} trips`, 'success');
+  renderCalendarEvents(calendarFetched);
+}
+
+// ============================================================
+// DISTANCE CALCULATION
+// ============================================================
+async function getMiles(origin, destination) {
+  if (CONFIG.googleMapsKey === 'AIzaSyDej64dHA97DHA2GtvrllxQfY6yP42MaHo') return 0;
+  try {
+    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&units=imperial&key=${CONFIG.googleMapsKey}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const dist = data.rows?.[0]?.elements?.[0]?.distance?.value;
+    return dist ? Math.round((dist / 1609.34) * 10) / 10 : 0;
+  } catch { return 0; }
+}
+
+async function calcDistance() {
+  const dest = document.getElementById('addDest').value;
+  if (!dest) { toast('Enter a destination first', 'error'); return; }
+  if (CONFIG.googleMapsKey === 'AIzaSyDej64dHA97DHA2GtvrllxQfY6yP42MaHo') {
+    toast('Set your Google Maps API key first', 'error'); return;
+  }
+  const btn = document.getElementById('calcBtn');
+  btn.innerHTML = '<span class="spinner"></span>Calculating...';
+  btn.disabled = true;
+  const miles = await getMiles(CONFIG.homePostcode, dest);
+  btn.innerHTML = 'Calculate from address';
+  btn.disabled = false;
+  if (miles) {
+    document.getElementById('addMiles').value = miles;
+    toast(`Distance: ${miles} miles (one way)`, 'success');
+  } else {
+    toast('Could not calculate distance — enter manually', 'error');
+  }
+}
+
+// ============================================================
+// TRIPS CRUD
+// ============================================================
+function addTripManual() {
+  const date = document.getElementById('addDate').value;
+  const title = document.getElementById('addTitle').value;
+  const dest = document.getElementById('addDest').value;
+  const miles = parseFloat(document.getElementById('addMiles').value);
+  const returnJ = document.getElementById('addReturn').value === 'yes';
+  const notes = document.getElementById('addNotes').value;
+
+  if (!date || !title || !dest) { toast('Please fill in date, meeting and destination', 'error'); return; }
+  if (!miles || miles <= 0) { toast('Please enter a valid mileage', 'error'); return; }
+
+  trips.push({
+    id: Date.now(),
+    date, title, destination: dest,
+    returnJourney: returnJ,
+    miles, notes,
+    source: 'manual'
+  });
+
+  saveTrips();
+  renderTrips();
+  updateStats();
+  clearForm();
+  switchTab('trips');
+  toast('Trip added', 'success');
+}
+
+function deleteTrip(id) {
+  if (!confirm('Delete this trip?')) return;
+  trips = trips.filter(t => t.id !== id);
+  saveTrips();
+  renderTrips();
+  updateStats();
+  toast('Trip deleted', 'success');
+}
+
+function updateMiles(id, val) {
+  const trip = trips.find(t => t.id === id);
+  if (trip) {
+    trip.miles = parseFloat(val) || 0;
+    trip.source = trip.source === 'pending' && trip.miles > 0 ? 'calendar' : trip.source;
+    saveTrips();
+    updateStats();
+    renderStats();
+  }
+}
+
+function saveTrips() {
+  localStorage.setItem('mileage_trips', JSON.stringify(trips));
+}
+
+// ============================================================
+// RENDER TRIPS
+// ============================================================
+function renderTrips() {
+  const tbody = document.getElementById('tripsBody');
+  const empty = document.getElementById('emptyTrips');
+
+  let filtered = getFilteredTrips();
+  document.getElementById('tripsCount').textContent = `${filtered.length} trip${filtered.length !== 1 ? 's' : ''}`;
+
+  if (!filtered.length) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  filtered.sort((a, b) => b.date.localeCompare(a.date));
+
+  tbody.innerHTML = filtered.map(t => {
+    const totalMiles = t.miles * (t.returnJourney ? 2 : 1);
+    const amount = (totalMiles * CONFIG.ratePerMile).toFixed(2);
+    return `
+      <tr>
+        <td>${new Date(t.date + 'T00:00:00').toLocaleDateString('en-GB')}</td>
+        <td>${t.title}</td>
+        <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${t.destination}">${t.destination}</td>
+        <td>${t.returnJourney ? '↩ Yes' : '→ No'}</td>
+        <td>
+          <input class="miles-input" type="number" value="${t.miles || ''}" 
+            placeholder="0" step="0.1" min="0"
+            onchange="updateMiles(${t.id}, this.value)"
+            title="One-way miles">
+          ${t.returnJourney ? `<span style="color:var(--muted);font-size:10px;"> ×2 = ${totalMiles}</span>` : ''}
+        </td>
+        <td class="amount">£${amount}</td>
+        <td><span class="trip-source ${t.source}">${t.source}</span></td>
+        <td><button class="btn small danger" onclick="deleteTrip(${t.id})">✕</button></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function getFilteredTrips() {
+  if (currentFilter === 'all') return trips;
+  if (currentFilter === 'tax-year') {
+    const now = new Date();
+    const taxStart = new Date(now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1, 3, 6);
+    return trips.filter(t => new Date(t.date) >= taxStart);
+  }
+  return trips.filter(t => t.date.startsWith(currentFilter));
+}
+
+// ============================================================
+// STATS
+// ============================================================
+function updateStats() {
+  renderStats();
+  renderTrips();
+}
+
+function renderStats() {
+  const filtered = getFilteredTrips();
+  const totalMiles = filtered.reduce((s, t) => s + (t.miles * (t.returnJourney ? 2 : 1)), 0);
+  const pending = filtered.filter(t => !t.miles || t.miles === 0).length;
+  document.getElementById('statTrips').textContent = filtered.length;
+  document.getElementById('statMiles').textContent = Math.round(totalMiles * 10) / 10;
+  document.getElementById('statAmount').textContent = `£${(totalMiles * CONFIG.ratePerMile).toFixed(2)}`;
+  document.getElementById('statPending').textContent = pending;
+}
+
+// ============================================================
+// MONTH FILTER BUTTONS
+// ============================================================
+function buildMonthButtons() {
+  const months = {};
+  trips.forEach(t => {
+    const ym = t.date.substring(0, 7);
+    months[ym] = true;
+  });
+  const sorted = Object.keys(months).sort().reverse();
+  const container = document.getElementById('monthButtons');
+  container.innerHTML = sorted.map(ym => {
+    const [y, m] = ym.split('-');
+    const label = new Date(+y, +m - 1).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' });
+    return `<button class="month-btn" onclick="filterMonth('${ym}', this)">${label}</button>`;
+  }).join('');
+}
+
+function filterMonth(filter, btn) {
+  currentFilter = filter;
+  document.querySelectorAll('.month-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderStats();
+}
+
+// ============================================================
+// SAVED LOCATIONS
+// ============================================================
+function renderLocations() {
+  const grid = document.getElementById('locationsGrid');
+  const empty = document.getElementById('emptyLocations');
+  if (!locations.length) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  grid.innerHTML = locations.map((l, i) => `
+    <div class="location-card">
+      <button class="location-delete" onclick="deleteLocation(${i})">✕</button>
+      <div class="location-name">${l.name}</div>
+      <div class="location-address">${l.address}</div>
+    </div>
+  `).join('');
+}
+
+function showAddLocation() {
+  document.getElementById('addLocationForm').style.display = 'block';
+}
+function hideAddLocation() {
+  document.getElementById('addLocationForm').style.display = 'none';
+  document.getElementById('locName').value = '';
+  document.getElementById('locAddress').value = '';
+}
+
+function saveLocation() {
+  const name = document.getElementById('locName').value.trim();
+  const address = document.getElementById('locAddress').value.trim();
+  if (!name || !address) { toast('Enter both name and address', 'error'); return; }
+  locations.push({ name, address });
+  localStorage.setItem('mileage_locations', JSON.stringify(locations));
+  renderLocations();
+  hideAddLocation();
+  toast('Location saved', 'success');
+}
+
+function deleteLocation(i) {
+  if (!confirm('Remove this location?')) return;
+  locations.splice(i, 1);
+  localStorage.setItem('mileage_locations', JSON.stringify(locations));
+  renderLocations();
+}
+
+function onDestInput(val) {
+  const box = document.getElementById('destSuggestions');
+  const matches = locations.filter(l => l.name.toLowerCase().includes(val.toLowerCase()) || l.address.toLowerCase().includes(val.toLowerCase()));
+  if (!val || !matches.length) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.innerHTML = matches.map(l => `
+    <div style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);" 
+      onmousedown="selectDest('${l.address.replace(/'/g, "\\'")}')">
+      <div style="font-size:12px;">${l.name}</div>
+      <div style="color:var(--muted);font-size:11px;">${l.address}</div>
+    </div>
+  `).join('');
+}
+
+function selectDest(address) {
+  document.getElementById('addDest').value = address;
+  document.getElementById('destSuggestions').style.display = 'none';
+}
+
+// ============================================================
+// EXPORT
+// ============================================================
+function getExportData() {
+  const filtered = getFilteredTrips().sort((a, b) => a.date.localeCompare(b.date));
+  return filtered.map(t => {
+    const totalMiles = t.miles * (t.returnJourney ? 2 : 1);
+    return {
+      Date: new Date(t.date + 'T00:00:00').toLocaleDateString('en-GB'),
+      Meeting: t.title,
+      Destination: t.destination,
+      'Return Journey': t.returnJourney ? 'Yes' : 'No',
+      'One-Way Miles': t.miles,
+      'Total Miles': totalMiles,
+      'Rate £/mile': CONFIG.ratePerMile,
+      'Claimable £': (totalMiles * CONFIG.ratePerMile).toFixed(2),
+      Source: t.source,
+      Notes: t.notes || ''
+    };
+  });
+}
+
+function exportCSV() {
+  const data = getExportData();
+  if (!data.length) { toast('No trips to export', 'error'); return; }
+  const headers = Object.keys(data[0]);
+  const rows = data.map(r => headers.map(h => `"${r[h]}"`).join(','));
+  const csv = [headers.join(','), ...rows].join('\n');
+  download('mileage-tracker.csv', 'text/csv', csv);
+  toast('CSV exported', 'success');
+}
+
+function exportExcel() {
+  const data = getExportData();
+  if (!data.length) { toast('No trips to export', 'error'); return; }
+
+  const totalMiles = data.reduce((s, r) => s + parseFloat(r['Total Miles']), 0);
+  const totalAmount = data.reduce((s, r) => s + parseFloat(r['Claimable £']), 0);
+
+  data.push({});
+  data.push({ Date: 'TOTAL', 'Total Miles': Math.round(totalMiles * 10) / 10, 'Claimable £': totalAmount.toFixed(2) });
+
+  const ws = XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = [{ wch: 12 }, { wch: 30 }, { wch: 30 }, { wch: 14 }, { wch: 13 }, { wch: 11 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 25 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Mileage');
+  XLSX.writeFile(wb, 'mileage-tracker.xlsx');
+  toast('Excel file downloaded', 'success');
+}
+
+function download(filename, type, content) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = filename;
+  a.click();
+}
+
+// ============================================================
+// UI HELPERS
+// ============================================================
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    const names = ['trips', 'calendar', 'add', 'locations'];
+    t.classList.toggle('active', names[i] === name);
+  });
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+}
+
+function clearForm() {
+  ['addDate', 'addTitle', 'addDest', 'addMiles', 'addNotes'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('addReturn').value = 'yes';
+}
+
+let toastTimer;
+function toast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+function init() {
+  // Set today as default date
+  document.getElementById('addDate').value = new Date().toISOString().split('T')[0];
+
+  // Check if config is set
+  if (CONFIG.clientId !== '9d98e61d-f3ba-41ea-9950-09a777269474') {
+    document.getElementById('calendarSetupNotice').style.display = 'none';
+  }
+
+  checkAuthCallback();
+  renderTrips();
+  renderStats();
+  renderLocations();
+  buildMonthButtons();
+}
+
+init();
+</script>
+</body>
+</html>
