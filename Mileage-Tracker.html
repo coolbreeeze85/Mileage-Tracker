@@ -332,16 +332,7 @@ function toggleAuth() {
     setAuthUI(false);
     toast('Signed out');
     return;
-  }
-  function toggleAuth() {
-  if (accessToken) {
-    accessToken = null;
-    setAuthUI(false);
-    toast('Signed out');
-    return;
-  }
-  const p = new URLSearchParams({
-  }
+   }
   const p = new URLSearchParams({
     client_id: CLIENT_ID, response_type:'token', redirect_uri: REDIRECT,
     scope:'https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/User.Read',
@@ -638,5 +629,3 @@ init();
 </script>
 </body>
 </html>
-
-
