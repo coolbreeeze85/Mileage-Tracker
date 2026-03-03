@@ -414,7 +414,7 @@ async function importSelected() {
     const loc  = e.location?.displayName||'';
     const date = (e.start.dateTime||e.start.date).split('T')[0];
     let miles  = 0;
-    if (loc && MAPS_KEY !== 'YOUR_GOOGLE_MAPS_API_KEY') miles = await getMiles(HOME, loc);
+    if (loc && MAPS_KEY !== 'AIzaSyDej64dHA97DHA2GtvrllxQfY6yP42MaHo') miles = await getMiles(HOME, loc);
     const trip = { id:Date.now()+n, calendarId:e.id, date, title:e.subject||'Meeting', destination:loc, returnJourney:true, miles, notes:'', source:miles?'calendar':'pending' };
     await put('trips', trip);
     trips.push(trip);
@@ -633,3 +633,4 @@ init();
 </script>
 </body>
 </html>
+
