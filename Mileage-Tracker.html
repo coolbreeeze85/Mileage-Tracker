@@ -333,9 +333,14 @@ function toggleAuth() {
     toast('Signed out');
     return;
   }
-  if (CLIENT_ID === '9d98e61d-f3ba-41ea-9950-09a777269474') {
-    toast('Open the file in a text editor and replace YOUR_CLIENT_ID with your Azure Client ID', 'error');
+  function toggleAuth() {
+  if (accessToken) {
+    accessToken = null;
+    setAuthUI(false);
+    toast('Signed out');
     return;
+  }
+  const p = new URLSearchParams({
   }
   const p = new URLSearchParams({
     client_id: CLIENT_ID, response_type:'token', redirect_uri: REDIRECT,
@@ -633,4 +638,5 @@ init();
 </script>
 </body>
 </html>
+
 
