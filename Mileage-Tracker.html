@@ -102,6 +102,17 @@
   .suggestion-item:hover { background: var(--surface2); }
   .suggestion-name { font-size: 12px; }
   .suggestion-addr { color: var(--muted); font-size: 11px; }
+  .stop-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; }
+  .stop-num { color:var(--muted); font-size:11px; min-width:20px; }
+  .stop-dest { flex:1; background:transparent; border:none; color:var(--text); font-family:'DM Mono',monospace; font-size:13px; outline:none; }
+  .stop-dest:focus { border-bottom:1px solid var(--accent); }
+  .stop-miles { width:65px; background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-family:'DM Mono',monospace; font-size:12px; text-align:right; }
+  .stop-miles:focus { outline:none; border-color:var(--accent); }
+  .stop-suggestions { position:absolute; z-index:50; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); min-width:280px; box-shadow:0 4px 16px rgba(0,0,0,0.4); }
+  .stop-wrap { position:relative; flex:1; }
+  .toggle-return { display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; padding:3px 8px; border-radius:4px; border:1px solid var(--border); background:none; color:var(--muted); font-family:'DM Mono',monospace; transition:all 0.15s; }
+  .toggle-return.yes { border-color:var(--accent); color:var(--accent); background:rgba(200,240,110,0.08); }
+
   /* Password screen */
   #lockScreen {
     position: fixed; inset: 0; background: var(--bg);
@@ -230,7 +241,7 @@
       <div style="overflow-x:auto">
         <table class="trips-table">
           <thead>
-            <tr><th>Date</th><th>Meeting</th><th>Destination</th><th>Return</th><th>Miles</th><th>Amount</th><th>Source</th><th></th></tr>
+            <tr><th>Date</th><th>Meeting</th><th>Route</th><th>Return</th><th>Miles</th><th>Amount</th><th>Source</th><th></th></tr>
           </thead>
           <tbody id="tripsBody"></tbody>
         </table>
@@ -271,33 +282,36 @@
           <label>Meeting / Purpose</label>
           <input type="text" id="addTitle" placeholder="e.g. Client meeting — Acme Ltd">
         </div>
-        <div class="form-group">
-          <label>Destination</label>
-          <input type="text" id="addDest" placeholder="Address or postcode" autocomplete="off" oninput="onDestInput(this.value)">
-          <div id="suggestions"></div>
-        </div>
-        <div class="form-group">
-          <label>Return Journey?</label>
-          <select id="addReturn">
-            <option value="yes">Yes — same day return</option>
-            <option value="no">No — one way only</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Miles (one way)</label>
-          <input type="number" id="addMiles" placeholder="e.g. 12.5" step="0.1" min="0">
-        </div>
-        <div class="form-group" style="justify-content:flex-end">
-          <label>&nbsp;</label>
-          <button class="btn" id="calcBtn" onclick="calcDistance()">Auto-calculate distance</button>
-        </div>
-        <div class="form-group full">
-          <label>Notes (optional)</label>
-          <input type="text" id="addNotes" placeholder="Any additional notes">
-        </div>
       </div>
+
+      <!-- Stops builder -->
+      <div style="padding:0 20px 12px">
+        <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:10px">Journey Stops</label>
+        <div id="stopsContainer"></div>
+        <button class="btn small" onclick="addStop()" style="margin-top:8px">+ Add Stop</button>
+      </div>
+
+      <div style="padding:0 20px 12px">
+        <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:8px">Return to Home?</label>
+        <div style="display:flex;gap:10px">
+          <button class="btn small" id="retYes" onclick="setReturn(true)" style="border-color:var(--accent);color:var(--accent)">↩ Yes — return home</button>
+          <button class="btn small" id="retNo"  onclick="setReturn(false)">→ No — one way only</button>
+        </div>
+        <div id="returnMilesInfo" style="color:var(--muted);font-size:11px;margin-top:8px"></div>
+      </div>
+
+      <div style="padding:0 20px 12px">
+        <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.8px;display:block;margin-bottom:6px">Notes (optional)</label>
+        <input type="text" id="addNotes" placeholder="Any additional notes" style="width:100%">
+      </div>
+
+      <div style="padding:0 20px 16px;background:var(--surface2);border-top:1px solid var(--border);margin-top:8px;padding-top:14px">
+        <div style="color:var(--muted);font-size:11px;margin-bottom:4px">Total miles this journey</div>
+        <div style="font-family:'Fraunces',serif;font-size:26px;color:var(--accent2)" id="tripMilesPreview">0 miles — £0.00</div>
+      </div>
+
       <div class="form-actions">
-        <button class="btn primary" onclick="addTripManual()">Add Trip</button>
+        <button class="btn primary" onclick="addTripManual()">Save Trip</button>
         <button class="btn" onclick="clearForm()">Clear</button>
       </div>
     </div>
@@ -405,7 +419,11 @@ function toggleAuth() {
     setAuthUI(false);
     toast('Signed out');
     return;
-  }  
+  }
+  if (CLIENT_ID === '9d98e61d-f3ba-41ea-9950-09a777269474') {
+    toast('Open the file in a text editor and replace YOUR_CLIENT_ID with your Azure Client ID', 'error');
+    return;
+  }
   const p = new URLSearchParams({
     client_id: CLIENT_ID, response_type:'token', redirect_uri: REDIRECT,
     scope:'https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/User.Read',
@@ -516,15 +534,151 @@ async function calcDistance() {
   else   { toast('Could not calculate — enter miles manually','error'); }
 }
 
+// ---- Multi-stop journey builder ----
+let stops = [{ dest:'', miles:0 }];
+let returnHome = true;
+
+function addStop() {
+  stops.push({ dest:'', miles:0 });
+  renderStops();
+}
+
+function removeStop(i) {
+  if (stops.length <= 1) return;
+  stops.splice(i,1);
+  renderStops();
+}
+
+function setReturn(val) {
+  returnHome = val;
+  document.getElementById('retYes').style.borderColor = val ? 'var(--accent)' : '';
+  document.getElementById('retYes').style.color       = val ? 'var(--accent)' : '';
+  document.getElementById('retNo').style.borderColor  = !val ? 'var(--accent)' : '';
+  document.getElementById('retNo').style.color        = !val ? 'var(--accent)' : '';
+  updateMilesPreview();
+}
+
+function renderStops() {
+  const container = document.getElementById('stopsContainer');
+  container.innerHTML = stops.map((s,i) => {
+    const from = i === 0 ? `🏠 ${HOME}` : (stops[i-1].dest || 'Previous stop');
+    return `<div class="stop-row" id="stopRow${i}">
+      <span class="stop-num">${i+1}</span>
+      <div style="flex:1">
+        <div style="color:var(--muted);font-size:10px;margin-bottom:3px">From: ${from}</div>
+        <div class="stop-wrap">
+          <input class="stop-dest" placeholder="Destination address or name"
+            value="${s.dest}" oninput="onStopInput(${i},this.value)" autocomplete="off"
+            onfocus="showStopSuggestions(${i})" onblur="hideStopSuggestions(${i})">
+          <div class="stop-suggestions" id="stopSug${i}" style="display:none"></div>
+        </div>
+      </div>
+      <input class="stop-miles" type="number" value="${s.miles||''}" placeholder="mi" step="0.1" min="0"
+        title="Miles for this leg" onchange="onStopMiles(${i},this.value)">
+      ${stops.length > 1 ? `<button class="btn small" onclick="removeStop(${i})" style="border-color:transparent;color:var(--muted)">✕</button>` : ''}
+    </div>`;
+  }).join('');
+  updateMilesPreview();
+}
+
+function onStopInput(i, val) {
+  stops[i].dest = val;
+  // Try auto-match from saved locations
+  const match = matchLocation(val);
+  if (match && match.miles) {
+    stops[i].miles = match.miles;
+    const inp = document.querySelector(`#stopRow${i} .stop-miles`);
+    if (inp) inp.value = match.miles;
+    updateMilesPreview();
+  }
+  showStopSuggestions(i);
+}
+
+function onStopMiles(i, val) {
+  stops[i].miles = parseFloat(val)||0;
+  updateMilesPreview();
+}
+
+function showStopSuggestions(i) {
+  const val = stops[i].dest.toLowerCase();
+  const box = document.getElementById(`stopSug${i}`);
+  if (!box) return;
+  const hits = locations.filter(l =>
+    !val || l.name.toLowerCase().includes(val) || l.address.toLowerCase().includes(val)
+  ).slice(0,6);
+  if (!hits.length) { box.style.display='none'; return; }
+  box.style.display = 'block';
+  box.innerHTML = hits.map(l =>
+    `<div class="suggestion-item" onmousedown="pickStop(${i},'${l.address.replace(/'/g,"\\'")}',${l.miles||0})">
+      <div class="suggestion-name">${l.name}</div>
+      <div class="suggestion-addr">${l.address}${l.miles ? ` · ${l.miles} mi` : ''}</div>
+    </div>`
+  ).join('');
+}
+
+function hideStopSuggestions(i) {
+  setTimeout(() => {
+    const box = document.getElementById(`stopSug${i}`);
+    if (box) box.style.display='none';
+  }, 200);
+}
+
+function pickStop(i, addr, miles) {
+  stops[i].dest  = addr;
+  stops[i].miles = miles;
+  renderStops();
+}
+
+function updateMilesPreview() {
+  const legMiles = stops.reduce((s,st)=>s+(st.miles||0),0);
+  const returnMiles = returnHome ? (stops[stops.length-1].miles||0) : 0;
+  const total = legMiles + returnMiles;
+  const el = document.getElementById('tripMilesPreview');
+  if (el) el.textContent = `${Math.round(total*10)/10} miles — £${(total*RATE).toFixed(2)}`;
+  const info = document.getElementById('returnMilesInfo');
+  if (info) info.textContent = returnHome ? `Return leg adds ${stops[stops.length-1].miles||0} miles (last stop back to home)` : '';
+}
+
 // ---- Trips ----
 async function addTripManual() {
-  const date=document.getElementById('addDate').value, title=document.getElementById('addTitle').value.trim();
-  const dest=document.getElementById('addDest').value.trim(), miles=parseFloat(document.getElementById('addMiles').value);
-  const ret=document.getElementById('addReturn').value==='yes', notes=document.getElementById('addNotes').value.trim();
-  if (!date||!title||!dest)   { toast('Fill in date, meeting and destination','error'); return; }
-  if (isNaN(miles)||miles<=0) { toast('Enter a valid mileage','error'); return; }
-  const trip={id:Date.now(), date, title, destination:dest, returnJourney:ret, miles, notes, source:'manual'};
-  await put('trips',trip); trips.push(trip); refresh(); clearForm(); switchTab('trips'); toast('Trip added ✓');
+  const date  = document.getElementById('addDate').value;
+  const title = document.getElementById('addTitle').value.trim();
+  const notes = document.getElementById('addNotes').value.trim();
+  if (!date || !title)           { toast('Enter date and meeting purpose','error'); return; }
+  if (!stops[0].dest)            { toast('Enter at least one destination','error'); return; }
+  if (stops.some(s=>!s.miles||s.miles<=0)) { toast('Enter miles for each stop','error'); return; }
+
+  const legMiles    = stops.reduce((s,st)=>s+(st.miles||0),0);
+  const returnMiles = returnHome ? (stops[stops.length-1].miles||0) : 0;
+  const totalMiles  = legMiles + returnMiles;
+  const route       = stops.map(s=>s.dest).join(' → ');
+
+  const trip = {
+    id: Date.now(),
+    date, title,
+    destination: route,
+    returnJourney: returnHome,
+    miles: totalMiles,  // stored as total (already includes return if applicable)
+    totalMiles,
+    stops: [...stops],
+    notes,
+    source: 'manual'
+  };
+  await put('trips', trip);
+  trips.push(trip);
+  refresh(); clearForm(); switchTab('trips'); toast('Trip saved ✓');
+}
+
+async function toggleReturn(id) {
+  const t=trips.find(t=>t.id===id); if(!t) return;
+  const wasReturn = t.returnJourney;
+  t.returnJourney = !wasReturn;
+  if (t.totalMiles !== undefined && t.stops?.length) {
+    const lastLeg = t.stops[t.stops.length-1].miles||0;
+    t.totalMiles = t.returnJourney ? t.totalMiles + lastLeg : t.totalMiles - lastLeg;
+    t.miles = t.totalMiles;
+  }
+  await put('trips',t); refresh(); toast(t.returnJourney?'Marked as return journey':'Marked as one-way');
 }
 
 async function deleteTrip(id) {
@@ -556,15 +710,27 @@ function renderTrips() {
   if (!list.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
   tbody.innerHTML=list.map(t=>{
-    const total=(t.miles*(t.returnJourney?2:1)), amount=(total*RATE).toFixed(2);
+    // Support both old (miles=one-way) and new (miles=total) storage formats
+    const isNewFormat = t.totalMiles !== undefined;
+    const total = isNewFormat ? t.totalMiles : (t.miles*(t.returnJourney?2:1));
+    const amount = (total*RATE).toFixed(2);
+    const dest = t.destination||'—';
     return `<tr>
       <td>${new Date(t.date+'T00:00:00').toLocaleDateString('en-GB')}</td>
       <td>${t.title}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${t.destination}">${t.destination||'—'}</td>
-      <td>${t.returnJourney?'↩ Yes':'→ No'}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${dest}">${dest}</td>
       <td>
-        <input class="miles-input" type="number" value="${t.miles||''}" placeholder="0" step="0.1" min="0" onchange="updateMiles(${t.id},this.value)" title="One-way miles">
-        ${t.returnJourney?`<span style="color:var(--muted);font-size:10px"> ×2=${total}</span>`:''}
+        <button class="toggle-return ${t.returnJourney?'yes':''}" onclick="toggleReturn(${t.id})" title="Click to toggle">
+          ${t.returnJourney?'↩ Yes':'→ No'}
+        </button>
+      </td>
+      <td>
+        ${isNewFormat
+          ? `<span style="color:var(--text)">${total} mi total</span>`
+          : `<input class="miles-input" type="number" value="${t.miles||''}" placeholder="0" step="0.1" min="0"
+              onchange="updateMiles(${t.id},this.value)" title="One-way miles">
+             ${t.returnJourney?`<span style="color:var(--muted);font-size:10px"> ×2=${total}</span>`:''}`
+        }
       </td>
       <td class="amount">£${amount}</td>
       <td><span class="trip-source ${t.source}">${t.source}</span></td>
@@ -574,7 +740,11 @@ function renderTrips() {
 }
 
 function renderStats() {
-  const list=getFiltered(), miles=list.reduce((s,t)=>s+(t.miles*(t.returnJourney?2:1)),0);
+  const list=getFiltered();
+  const miles=list.reduce((s,t)=>{
+    const total = t.totalMiles !== undefined ? t.totalMiles : (t.miles*(t.returnJourney?2:1));
+    return s+total;
+  },0);
   document.getElementById('statTrips').textContent=list.length;
   document.getElementById('statMiles').textContent=Math.round(miles*10)/10;
   document.getElementById('statAmount').textContent=`£${(miles*RATE).toFixed(2)}`;
@@ -708,9 +878,13 @@ function switchTab(name) {
 }
 
 function clearForm() {
-  ['addDate','addTitle','addDest','addMiles','addNotes'].forEach(id=>document.getElementById(id).value='');
-  document.getElementById('addReturn').value='yes';
-  document.getElementById('suggestions').style.display='none';
+  stops = [{ dest:'', miles:0 }];
+  returnHome = true;
+  document.getElementById('addDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('addTitle').value = '';
+  document.getElementById('addNotes').value = '';
+  setReturn(true);
+  renderStops();
 }
 
 let toastTimer;
@@ -746,6 +920,8 @@ async function init() {
     toast('8 default locations loaded — add miles in Saved Locations tab');
   }
   document.getElementById('addDate').value = new Date().toISOString().split('T')[0];
+  setReturn(true);
+  renderStops();
   checkAuth();
   refresh();
   renderLocations();
