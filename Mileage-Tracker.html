@@ -405,7 +405,7 @@ function toggleAuth() {
     setAuthUI(false);
     toast('Signed out');
     return;
-  }
+  }  
   const p = new URLSearchParams({
     client_id: CLIENT_ID, response_type:'token', redirect_uri: REDIRECT,
     scope:'https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/User.Read',
@@ -482,9 +482,11 @@ async function importSelected() {
     const e    = calEvents[+cb.dataset.i];
     const loc  = e.location?.displayName||'';
     const date = (e.start.dateTime||e.start.date).split('T')[0];
-    let miles  = 0;
-    if (loc && MAPS_KEY !== 'AIzaSyDej64dHA97DHA2GtvrllxQfY6yP42MaHo') miles = await getMiles(HOME, loc);
-    const trip = { id:Date.now()+n, calendarId:e.id, date, title:e.subject||'Meeting', destination:loc, returnJourney:true, miles, notes:'', source:miles?'calendar':'pending' };
+    // Try to match to a saved location first
+    const saved = matchLocation(loc);
+    let miles   = saved?.miles || 0;
+    let source  = miles ? 'calendar' : 'pending';
+    const trip  = { id:Date.now()+n, calendarId:e.id, date, title:e.subject||'Meeting', destination:loc, returnJourney:true, miles, notes: saved ? `Matched: ${saved.name}` : '', source };
     await put('trips', trip);
     trips.push(trip);
     n++;
@@ -607,6 +609,13 @@ function renderLocations() {
       <button class="location-delete" onclick="deleteLocation(${l.id})">✕</button>
       <div class="location-name">${l.name}</div>
       <div class="location-address">${l.address}</div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+        <input class="miles-input" type="number" value="${l.miles||''}" placeholder="miles" step="0.1" min="0"
+          onchange="updateLocationMiles(${l.id},this.value)" title="One-way miles from home" style="width:80px">
+        <span style="color:var(--muted);font-size:11px">one-way miles</span>
+        <a href="https://www.google.com/maps/dir/${encodeURIComponent(HOME)}/${encodeURIComponent(l.address)}" 
+          target="_blank" class="btn small" style="text-decoration:none;margin-left:auto">📍 Get Miles</a>
+      </div>
     </div>`).join('');
 }
 
@@ -618,15 +627,39 @@ function toggleAddLoc() {
 async function saveLocation() {
   const name=document.getElementById('locName').value.trim(), addr=document.getElementById('locAddr').value.trim();
   if (!name||!addr) { toast('Enter both name and address','error'); return; }
-  await put('locations',{name,address:addr});
+  await put('locations',{name,address:addr,miles:0});
   locations=await all('locations'); renderLocations();
   document.getElementById('locName').value=''; document.getElementById('locAddr').value='';
   toggleAddLoc(); toast('Location saved ✓');
 }
 
+async function updateLocationMiles(id,val) {
+  const loc=locations.find(l=>l.id===id); if(!loc) return;
+  loc.miles=parseFloat(val)||0;
+  await put('locations',loc);
+  toast('Miles saved ✓');
+}
+
 async function deleteLocation(id) {
   if (!confirm('Remove this location?')) return;
   await del('locations',id); locations=await all('locations'); renderLocations();
+}
+
+// Match a calendar event location to a saved location (fuzzy postcode/name match)
+function matchLocation(destination) {
+  if (!destination||!locations.length) return null;
+  const d = destination.toLowerCase();
+  // Try postcode match first (last word of address)
+  const postcode = destination.trim().split(/\s+/).slice(-2).join('').toLowerCase().replace(/\s/g,'');
+  for (const l of locations) {
+    const lpc = l.address.trim().split(/\s+/).slice(-2).join('').toLowerCase().replace(/\s/g,'');
+    if (postcode && lpc && postcode===lpc) return l;
+  }
+  // Try name match
+  for (const l of locations) {
+    if (d.includes(l.name.toLowerCase()) || l.address.toLowerCase().includes(d.substring(0,10))) return l;
+  }
+  return null;
 }
 
 function onDestInput(val) {
@@ -688,11 +721,30 @@ function toast(msg,type='success'){
 }
 
 // ---- Init ----
+const DEFAULT_LOCATIONS = [
+  { name:'Anaya',       address:'Flat 7 Landulph House, SE11 4EH' },
+  { name:'Carter',      address:'18 Little Bornes, Dulwich, London, SE21 8SE' },
+  { name:'Amara',       address:'1 Waterside, BR3 3GJ' },
+  { name:'Corman (Alex)', address:'33 Brockwell Park Gardens, West Dulwich, London, SE24 9BJ' },
+  { name:'Thiya',       address:'236 Franciscan Road, Tooting Graveney, London, SW17 8HF' },
+  { name:'Sarai-Lee',   address:'Flat 6, 1 Hope Park, Pamela Court, BR1 3TQ' },
+  { name:'Soumia',      address:'Beulah Hill, SE19 3EB' },
+  { name:'Sarah',       address:'Flat 6, Block C, Peabody Estate, Rosendale Road, London, SE24 9DY' },
+];
+
 async function init() {
   initLock();
   await openDB();
   trips     = await all('trips');
   locations = await all('locations');
+  // Seed default locations on first run
+  if (locations.length === 0) {
+    for (const loc of DEFAULT_LOCATIONS) {
+      await put('locations', { ...loc, miles: 0 });
+    }
+    locations = await all('locations');
+    toast('8 default locations loaded — add miles in Saved Locations tab');
+  }
   document.getElementById('addDate').value = new Date().toISOString().split('T')[0];
   checkAuth();
   refresh();
