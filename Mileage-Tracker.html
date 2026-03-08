@@ -692,11 +692,12 @@ async function deleteTrip(id) {
   await del('trips',id); trips=trips.filter(t=>t.id!==id); refresh(); toast('Trip deleted');
 }
 
-async function updateMiles(id,val) {
+async function updateMiles(id, val) {
   const t=trips.find(t=>t.id===id); if(!t) return;
-  t.miles=parseFloat(val)||0;
-  if (t.source==='pending'&&t.miles>0) t.source='calendar';
-  await put('trips',t); renderStats();
+  t.miles = parseFloat(val)||0;
+  if (t.source==='pending' && t.miles>0) t.source = 'calendar';
+  await put('trips',t);
+  refresh();
 }
 
 // ---- Render ----
@@ -716,12 +717,35 @@ function renderTrips() {
   if (!list.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
   tbody.innerHTML=list.map(t=>{
-    // Support both old (miles=one-way) and new (miles=total) storage formats
     const isNewFormat = t.totalMiles !== undefined;
-    const total = isNewFormat ? t.totalMiles : (t.miles*(t.returnJourney?2:1));
+    const total  = isNewFormat ? t.totalMiles : (t.miles*(t.returnJourney?2:1));
     const amount = (total*RATE).toFixed(2);
-    const dest = t.destination||'—';
-    return `<tr>
+    const dest   = t.destination||'—';
+    const isPending = !t.miles || t.miles === 0;
+
+    // Miles cell — for pending trips show lookup; for set trips show value with edit option
+    const milesCell = isPending
+      ? `<div style="position:relative">
+           <input class="miles-input" type="number" value="" placeholder="miles"
+             step="0.1" min="0" style="width:75px"
+             onchange="updateMiles(${t.id},this.value)"
+             onfocus="showTripLocSug(${t.id},this)"
+             oninput="filterTripLocSug(${t.id},this.value,this)"
+             title="Enter miles or type to search saved locations">
+           <div id="tripSug${t.id}" style="display:none;position:absolute;z-index:50;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);min-width:220px;box-shadow:0 4px 16px rgba(0,0,0,0.4);left:0;top:100%">
+             ${locations.map(l=>`
+               <div class="suggestion-item" onmousedown="applyTripMiles(${t.id},${l.miles||0},'${l.name.replace(/'/g,"\\'")}')">
+                 <div class="suggestion-name">${l.name}</div>
+                 <div class="suggestion-addr">${l.miles ? l.miles+' mi' : '⚠ miles not set'}</div>
+               </div>`).join('')}
+           </div>
+         </div>`
+      : `<span style="color:var(--text);font-size:12px">${isNewFormat ? total+' mi' : t.miles+' mi'}</span>
+         ${!isNewFormat && t.returnJourney ? `<span style="color:var(--muted);font-size:10px"> ×2=${total}</span>` : ''}
+         <button class="btn small" style="margin-left:4px;border-color:transparent;color:var(--muted);font-size:10px" 
+           onclick="resetTripMiles(${t.id})">edit</button>`;
+
+    return `<tr id="tripRow${t.id}">
       <td>${new Date(t.date+'T00:00:00').toLocaleDateString('en-GB')}</td>
       <td>${t.title}</td>
       <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${dest}">${dest}</td>
@@ -730,19 +754,55 @@ function renderTrips() {
           ${t.returnJourney?'↩ Yes':'→ No'}
         </button>
       </td>
-      <td>
-        ${isNewFormat
-          ? `<span style="color:var(--text)">${total} mi total</span>`
-          : `<input class="miles-input" type="number" value="${t.miles||''}" placeholder="0" step="0.1" min="0"
-              onchange="updateMiles(${t.id},this.value)" title="One-way miles">
-             ${t.returnJourney?`<span style="color:var(--muted);font-size:10px"> ×2=${total}</span>`:''}`
-        }
-      </td>
-      <td class="amount">£${amount}</td>
+      <td>${milesCell}</td>
+      <td class="amount" id="amt${t.id}">£${amount}</td>
       <td><span class="trip-source ${t.source}">${t.source}</span></td>
       <td><button class="btn small" onclick="deleteTrip(${t.id})" style="border-color:transparent">✕</button></td>
     </tr>`;
   }).join('');
+}
+
+function showTripLocSug(id, input) {
+  const box = document.getElementById(`tripSug${id}`);
+  if (!box) return;
+  filterTripLocSug(id, input.value, input);
+}
+
+function filterTripLocSug(id, val, input) {
+  const box = document.getElementById(`tripSug${id}`);
+  if (!box) return;
+  const hits = locations.filter(l =>
+    !val || l.name.toLowerCase().includes(val.toLowerCase()) || l.address.toLowerCase().includes(val.toLowerCase())
+  );
+  if (!hits.length) { box.style.display='none'; return; }
+  box.style.display = 'block';
+  box.innerHTML = hits.map(l=>`
+    <div class="suggestion-item" onmousedown="applyTripMiles(${id},${l.miles||0},'${l.name.replace(/'/g,"\\'")}')">
+      <div class="suggestion-name">${l.name}</div>
+      <div class="suggestion-addr">${l.miles ? l.miles+' mi one-way' : '⚠ miles not set'}</div>
+    </div>`).join('');
+  // Hide on outside click
+  setTimeout(() => {
+    const hide = e => { if (!box.contains(e.target) && e.target !== input) { box.style.display='none'; document.removeEventListener('click', hide); } };
+    document.addEventListener('click', hide);
+  }, 100);
+}
+
+async function applyTripMiles(id, miles, name) {
+  const box = document.getElementById(`tripSug${id}`);
+  if (box) box.style.display = 'none';
+  if (!miles || miles === 0) {
+    toast(`No miles set for ${name} — add them in Saved Locations tab`, 'error');
+    return;
+  }
+  await updateMiles(id, miles);
+  toast(`${miles} miles applied from ${name} ✓`);
+}
+
+async function resetTripMiles(id) {
+  const t = trips.find(t=>t.id===id); if(!t) return;
+  t.miles = 0; t.source = 'pending';
+  await put('trips',t); refresh();
 }
 
 function renderStats() {
