@@ -423,12 +423,17 @@
 // =======================================================
 // CONFIG — paste your values between the quotes
 // =======================================================
-const TENANT_ID = '3f0b9204-cde9-46ff-b35d-6c2f46eb8391';
-const CLIENT_ID = '9d98e61d-f3ba-41ea-9950-09a777269474';
-const MAPS_KEY  = 'AIzaSyDej64dHA97DHA2GtvrllxQfY6yP42MaHo';
-const HOME      = 'SE27 0NA';
-const RATE      = 0.49;
-const REDIRECT  = window.location.href.split('?')[0].split('#')[0];
+const TENANT_ID   = '3f0b9204-cde9-46ff-b35d-6c2f46eb8391';
+const CLIENT_ID   = '9d98e61d-f3ba-41ea-9950-09a777269474';
+const MAPS_KEY    = 'AIzaSyDej64dHA97DHA2GtvrllxQfY6yP42MaHo';
+const HOME        = 'SE27 0NA';
+const RATE        = 0.49;
+const REDIRECT    = window.location.href.split('?')[0].split('#')[0];
+
+// OneDrive Excel sync
+const ONEDRIVE_USER  = 'rebecca_weteachacademy_co_uk';
+const EXCEL_FILENAME = 'Milewise-export.xlsx';
+const EXCEL_SHEET    = 'Mileage';
 
 // =======================================================
 // PASSWORD — change this to your chosen password
@@ -493,7 +498,7 @@ function toggleAuth() {
   }
   const p = new URLSearchParams({
     client_id: CLIENT_ID, response_type:'token', redirect_uri: REDIRECT,
-    scope:'https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/User.Read',
+    scope:'https://graph.microsoft.com/Calendars.Read https://graph.microsoft.com/User.Read https://graph.microsoft.com/Files.ReadWrite',
     response_mode:'fragment', nonce: Math.random().toString(36)
   });
   window.location.href = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/authorize?${p}`;
@@ -576,6 +581,7 @@ async function importSelected() {
     const trip = { id:Date.now()+n, calendarId:e.id, date, title:e.subject||'Meeting', destination:loc, returnJourney:true, miles, notes, source };
     await put('trips', trip);
     trips.push(trip);
+    syncTripToExcel(trip);
     n++;
   }
   refresh();
@@ -740,6 +746,7 @@ async function addTripManual() {
   await put('trips', trip);
   trips.push(trip);
   refresh(); clearForm(); switchTab('trips'); toast('Trip saved ✓');
+  syncTripToExcel(trip);
 }
 
 async function toggleReturn(id) {
@@ -989,6 +996,93 @@ function pickDest(addr, miles) {
   }
 }
 
+// ---- OneDrive Excel Sync ----
+// Finds the Excel file in OneDrive by name and returns its Graph item ID
+async function getExcelItemId() {
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER}/drive/root/search(q='${encodeURIComponent(EXCEL_FILENAME)}')`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) throw new Error(`Could not search OneDrive (${res.status})`);
+  const data = await res.json();
+  const file = (data.value || []).find(f => f.name === EXCEL_FILENAME);
+  if (!file) throw new Error(`${EXCEL_FILENAME} not found in OneDrive`);
+  return file.id;
+}
+
+// Gets the used range to find the next empty row
+async function getNextRow(itemId) {
+  const res = await fetch(
+    `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER}/drive/items/${itemId}/workbook/worksheets('${EXCEL_SHEET}')/usedRange`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  if (!res.ok) {
+    // Sheet may be empty — start at row 2 (row 1 = headers)
+    return 2;
+  }
+  const data = await res.json();
+  // rowCount includes header row; next empty row is rowCount + 1 (1-indexed)
+  return (data.rowCount || 1) + 1;
+}
+
+// Appends a single trip row to the Excel sheet
+async function syncTripToExcel(trip) {
+  if (!accessToken) return; // silently skip if not connected
+  try {
+    const itemId  = await getExcelItemId();
+    const nextRow = await getNextRow(itemId);
+
+    const isNewFormat = trip.totalMiles !== undefined;
+    const total  = isNewFormat ? trip.totalMiles : (trip.miles * (trip.returnJourney ? 2 : 1));
+    const oneWay = isNewFormat ? (trip.stops ? trip.stops.reduce((s,st)=>s+(st.miles||0),0) : trip.miles) : trip.miles;
+    const date   = new Date(trip.date + 'T00:00:00').toLocaleDateString('en-GB');
+
+    // Column order matches the local Excel export: A–J
+    const values = [[
+      date,
+      trip.title,
+      trip.destination || '',
+      trip.returnJourney ? 'Yes' : 'No',
+      oneWay,
+      total,
+      RATE,
+      parseFloat((total * RATE).toFixed(2)),
+      trip.source,
+      trip.notes || ''
+    ]];
+
+    // Write headers if this is the first row
+    if (nextRow === 2) {
+      const headers = [['Date','Meeting','Destination','Return Journey','One-Way Miles','Total Miles','Rate £/mile','Claimable £','Source','Notes']];
+      await fetch(
+        `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER}/drive/items/${itemId}/workbook/worksheets('${EXCEL_SHEET}')/range(address='A1:J1')`,
+        {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ values: headers })
+        }
+      );
+    }
+
+    const col = `A${nextRow}:J${nextRow}`;
+    const res = await fetch(
+      `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER}/drive/items/${itemId}/workbook/worksheets('${EXCEL_SHEET}')/range(address='${col}')`,
+      {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values })
+      }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(()=>({}));
+      throw new Error(err?.error?.message || `HTTP ${res.status}`);
+    }
+  } catch(err) {
+    console.warn('OneDrive sync failed:', err.message);
+    toast(`Saved locally — OneDrive sync failed: ${err.message}`, 'error');
+  }
+}
+
 // ---- Export ----
 function exportRows() {
   return getFiltered().sort((a,b)=>a.date.localeCompare(b.date)).map(t=>{
@@ -1077,4 +1171,4 @@ async function init() {
 init();
 </script>
 </body>
-</html>F
+</html>you
