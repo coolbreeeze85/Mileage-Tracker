@@ -431,7 +431,6 @@ const RATE        = 0.49;
 const REDIRECT    = window.location.href.split('?')[0].split('#')[0];
 
 // OneDrive Excel sync
-const ONEDRIVE_USER  = 'rebecca_weteachacademy_co_uk';
 const EXCEL_FILENAME = 'Milewise-export.xlsx';
 const EXCEL_SHEET    = 'Mileage';
 
@@ -997,37 +996,53 @@ function pickDest(addr, miles) {
 }
 
 // ---- OneDrive Excel Sync ----
-// Finds the Excel file in OneDrive by name and returns its Graph item ID
-async function getExcelItemId() {
-  const res = await fetch(
-    `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER}/drive/root/search(q='${encodeURIComponent(EXCEL_FILENAME)}')`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  if (!res.ok) throw new Error(`Could not search OneDrive (${res.status})`);
-  const data = await res.json();
-  const file = (data.value || []).find(f => f.name === EXCEL_FILENAME);
-  if (!file) throw new Error(`${EXCEL_FILENAME} not found in OneDrive`);
-  return file.id;
-}
+let _excelItemId = null; // cached after first lookup
 
-// Gets the used range to find the next empty row
-async function getNextRow(itemId) {
-  const res = await fetch(
-    `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER}/drive/items/${itemId}/workbook/worksheets('${EXCEL_SHEET}')/usedRange`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
+async function graphFetch(url, opts={}) {
+  const res = await fetch(url, {
+    ...opts,
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', ...(opts.headers||{}) }
+  });
   if (!res.ok) {
-    // Sheet may be empty — start at row 2 (row 1 = headers)
-    return 2;
+    const body = await res.json().catch(()=>({}));
+    throw new Error(body?.error?.message || `HTTP ${res.status} — ${url}`);
   }
-  const data = await res.json();
-  // rowCount includes header row; next empty row is rowCount + 1 (1-indexed)
-  return (data.rowCount || 1) + 1;
+  return res.status === 204 ? null : res.json();
 }
 
-// Appends a single trip row to the Excel sheet
+async function getExcelItemId() {
+  if (_excelItemId) return _excelItemId;
+  // Try direct path first (works when file is in OneDrive root)
+  try {
+    const data = await graphFetch(
+      `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURIComponent(EXCEL_FILENAME)}`
+    );
+    _excelItemId = data.id;
+    return _excelItemId;
+  } catch {}
+  // Fallback: search across all of OneDrive
+  const data = await graphFetch(
+    `https://graph.microsoft.com/v1.0/me/drive/root/search(q='${encodeURIComponent(EXCEL_FILENAME)}')`
+  );
+  const file = (data.value || []).find(f => f.name === EXCEL_FILENAME);
+  if (!file) throw new Error(`"${EXCEL_FILENAME}" not found in OneDrive — make sure the file exists and is named exactly "${EXCEL_FILENAME}"`);
+  _excelItemId = file.id;
+  return _excelItemId;
+}
+
+async function getNextRow(itemId) {
+  try {
+    const data = await graphFetch(
+      `https://graph.microsoft.com/v1.0/me/drive/items/${itemId}/workbook/worksheets('${EXCEL_SHEET}')/usedRange`
+    );
+    return (data.rowCount || 1) + 1;
+  } catch {
+    return 2; // sheet is empty — row 1 will be headers
+  }
+}
+
 async function syncTripToExcel(trip) {
-  if (!accessToken) return; // silently skip if not connected
+  if (!accessToken) return;
   try {
     const itemId  = await getExcelItemId();
     const nextRow = await getNextRow(itemId);
@@ -1037,46 +1052,26 @@ async function syncTripToExcel(trip) {
     const oneWay = isNewFormat ? (trip.stops ? trip.stops.reduce((s,st)=>s+(st.miles||0),0) : trip.miles) : trip.miles;
     const date   = new Date(trip.date + 'T00:00:00').toLocaleDateString('en-GB');
 
-    // Column order matches the local Excel export: A–J
-    const values = [[
-      date,
-      trip.title,
-      trip.destination || '',
-      trip.returnJourney ? 'Yes' : 'No',
-      oneWay,
-      total,
-      RATE,
-      parseFloat((total * RATE).toFixed(2)),
-      trip.source,
-      trip.notes || ''
-    ]];
-
-    // Write headers if this is the first row
+    // Write headers on first use
     if (nextRow === 2) {
-      const headers = [['Date','Meeting','Destination','Return Journey','One-Way Miles','Total Miles','Rate £/mile','Claimable £','Source','Notes']];
-      await fetch(
-        `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER}/drive/items/${itemId}/workbook/worksheets('${EXCEL_SHEET}')/range(address='A1:J1')`,
-        {
-          method: 'PATCH',
-          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ values: headers })
-        }
+      await graphFetch(
+        `https://graph.microsoft.com/v1.0/me/drive/items/${itemId}/workbook/worksheets('${EXCEL_SHEET}')/range(address='A1:J1')`,
+        { method:'PATCH', body: JSON.stringify({ values:[['Date','Meeting','Destination','Return Journey','One-Way Miles','Total Miles','Rate £/mile','Claimable £','Source','Notes']] }) }
       );
     }
 
-    const col = `A${nextRow}:J${nextRow}`;
-    const res = await fetch(
-      `https://graph.microsoft.com/v1.0/users/${ONEDRIVE_USER}/drive/items/${itemId}/workbook/worksheets('${EXCEL_SHEET}')/range(address='${col}')`,
-      {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values })
-      }
+    await graphFetch(
+      `https://graph.microsoft.com/v1.0/me/drive/items/${itemId}/workbook/worksheets('${EXCEL_SHEET}')/range(address='A${nextRow}:J${nextRow}')`,
+      { method:'PATCH', body: JSON.stringify({ values:[[
+        date, trip.title, trip.destination||'',
+        trip.returnJourney ? 'Yes' : 'No',
+        oneWay, total, RATE,
+        parseFloat((total*RATE).toFixed(2)),
+        trip.source, trip.notes||''
+      ]] }) }
     );
-    if (!res.ok) {
-      const err = await res.json().catch(()=>({}));
-      throw new Error(err?.error?.message || `HTTP ${res.status}`);
-    }
+
+    toast('Trip saved & synced to OneDrive ✓');
   } catch(err) {
     console.warn('OneDrive sync failed:', err.message);
     toast(`Saved locally — OneDrive sync failed: ${err.message}`, 'error');
@@ -1171,4 +1166,4 @@ async function init() {
 init();
 </script>
 </body>
-</html>you
+</html>
